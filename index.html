@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nara OTC — Peer-to-Peer NARA Trading</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: { 50: '#eff6ff', 100: '#dbeafe', 400: '#60a5fa', 500: '#3b82f6', 600: '#2563eb', 900: '#1e3a5f' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        body { font-family: 'Inter', system-ui, sans-serif; }
+        .gradient-text { background: linear-gradient(135deg, #60a5fa, #a78bfa, #f472b6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .card { background: rgba(17,24,39,0.8); backdrop-filter: blur(16px); border: 1px solid rgba(55,65,81,0.5); }
+        .card:hover { border-color: rgba(96,165,250,0.3); }
+        @keyframes pulse-glow { 0%,100% { box-shadow: 0 0 20px rgba(96,165,250,0.1); } 50% { box-shadow: 0 0 40px rgba(96,165,250,0.2); } }
+        .glow { animation: pulse-glow 3s ease-in-out infinite; }
+    </style>
+</head>
+<body class="bg-gray-950 text-white min-h-screen">
+
+<!-- Navbar -->
+<nav class="border-b border-gray-800 bg-gray-950/80 backdrop-blur sticky top-0 z-50">
+    <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <span class="text-2xl">🥜</span>
+            <div>
+                <h1 class="text-lg font-bold gradient-text">Nara OTC</h1>
+                <p class="text-xs text-gray-500">Peer-to-Peer Trading</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-3">
+            <span id="status-dot" class="flex items-center gap-1.5 text-xs text-gray-400">
+                <span class="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" id="conn-dot"></span>
+                <span id="conn-text">Connecting...</span>
+            </span>
+            <button onclick="showCreate()" class="bg-brand-600 hover:bg-brand-500 px-4 py-2 rounded-lg text-sm font-semibold transition">
+                + New Order
+            </button>
+        </div>
+    </div>
+</nav>
+
+<div class="max-w-6xl mx-auto px-4 py-6">
+
+    <!-- Stats -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div class="card rounded-xl p-4 glow">
+            <div class="text-2xl font-bold" id="stat-orders">—</div>
+            <div class="text-gray-500 text-xs mt-1">Active Orders</div>
+        </div>
+        <div class="card rounded-xl p-4">
+            <div class="text-2xl font-bold text-green-400" id="stat-volume">—</div>
+            <div class="text-gray-500 text-xs mt-1">Total Volume ($)</div>
+        </div>
+        <div class="card rounded-xl p-4">
+            <div class="text-2xl font-bold text-blue-400" id="stat-best">—</div>
+            <div class="text-gray-500 text-xs mt-1">Best Price ($)</div>
+        </div>
+        <div class="card rounded-xl p-4">
+            <div class="text-2xl font-bold" id="stat-token">—</div>
+            <div class="text-gray-500 text-xs mt-1">Payment Token</div>
+        </div>
+    </div>
+
+    <!-- Create Order Form -->
+    <div id="create-form" class="hidden card rounded-xl p-6 mb-6">
+        <h2 class="text-lg font-semibold mb-4">📝 Create Sell Order</h2>
+        <form onsubmit="handleCreate(event)" class="space-y-4">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div><label class="block text-sm text-gray-400 mb-1">Amount NARA</label><input type="number" step="any" id="form-amount" class="w-full bg-gray-800 rounded-lg p-3 focus:ring-2 focus:ring-brand-500 outline-none" placeholder="100" required></div>
+                <div><label class="block text-sm text-gray-400 mb-1">Price per NARA ($)</label><input type="number" step="any" id="form-price" class="w-full bg-gray-800 rounded-lg p-3 focus:ring-2 focus:ring-brand-500 outline-none" placeholder="0.05" required></div>
+                <div><label class="block text-sm text-gray-400 mb-1">Payment Token</label><select id="form-token" class="w-full bg-gray-800 rounded-lg p-3 focus:ring-2 focus:ring-brand-500 outline-none"><option value="USDC">USDC (Base)</option><option value="USDT">USDT (BSC)</option></select></div>
+            </div>
+            <button type="submit" class="w-full bg-green-600 hover:bg-green-500 py-3 rounded-lg font-semibold transition">Create Order</button>
+        </form>
+    </div>
+
+    <!-- Orders List -->
+    <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold">📋 Active Sell Orders</h2>
+        <button onclick="fetchOrders()" class="text-sm text-brand-400 hover:text-brand-300 transition">↻ Refresh</button>
+    </div>
+
+    <div class="space-y-3" id="orders-list">
+        <div class="text-center py-12 text-gray-500">Loading orders...</div>
+    </div>
+</div>
+
+<footer class="text-center py-8 text-gray-600 text-xs mt-12">
+    Nara OTC v1.0 • Escrow auto-release via Keeper • Built on Nara Chain
+</footer>
+
+<script>
+const KEEPER_URL = 'https://nara-keeper-production.up.railway.app'; // Update when deployed
+
+function showCreate() { document.getElementById('create-form').classList.toggle('hidden'); }
+
+async function fetchOrders() {
+    const list = document.getElementById('orders-list');
+    list.innerHTML = '<div class="text-center py-8 text-gray-500">Loading...</div>';
+    try {
+        const res = await fetch(`${KEEPER_URL}/api/orders?limit=100`);
+        if (!res.ok) throw new Error('Keeper offline');
+        const data = await res.json();
+        const orders = data.orders || [];
+
+        // Update stats
+        document.getElementById('stat-orders').textContent = orders.length || '—';
+        const vol = orders.reduce((s,o) => s + (o.total_usd||0), 0);
+        document.getElementById('stat-volume').textContent = vol.toFixed(2);
+        const best = orders.length ? Math.min(...orders.map(o=>o.price_usd)) : null;
+        document.getElementById('stat-best').textContent = best ? `$${best.toFixed(4)}` : '—';
+        document.getElementById('stat-token').textContent = orders.length ? orders[0].payment_token : '—';
+        document.getElementById('conn-dot').className = 'w-2 h-2 rounded-full bg-green-500';
+        document.getElementById('conn-text').textContent = 'Connected';
+
+        if (orders.length === 0) {
+            list.innerHTML = '<div class="card rounded-xl p-8 text-center text-gray-500">No active orders. Create one to get started!</div>';
+            return;
+        }
+
+        list.innerHTML = orders.map(o => `
+            <div class="card rounded-xl p-5 flex items-center justify-between">
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span class="inline-block w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
+                        <span class="font-mono text-xs text-gray-500">#${o.id}</span>
+                        <span class="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400">${o.payment_token} • Chain ${o.payment_chain_id === 8453 ? 'Base' : o.payment_chain_id === 56 ? 'BSC' : 'Arb'}</span>
+                    </div>
+                    <div class="mt-2"><span class="text-xl font-bold">${o.amount_nara}</span><span class="text-gray-400 ml-1">NARA</span></div>
+                    <div class="text-sm text-gray-500 mt-1">$${o.price_usd}/NARA • Total: <span class="text-gray-300 font-semibold">$${o.total_usd}</span></div>
+                    <div class="text-xs text-gray-600 mt-1 font-mono truncate max-w-[300px]">${o.payment_address}</div>
+                </div>
+                <div class="ml-4">
+                    <button onclick="buyOrder('${o.id}')" class="bg-brand-600 hover:bg-brand-500 px-6 py-3 rounded-lg font-semibold text-sm transition whitespace-nowrap">
+                        Buy Now
+                    </button>
+                </div>
+            </div>
+        `).join('');
+
+    } catch (e) {
+        console.error(e);
+        list.innerHTML = `<div class="card rounded-xl p-8 text-center text-red-400">⚠️ Keeper unreachable<br><span class="text-gray-500 text-sm">${e.message}</span><br><span class="text-gray-600 text-xs mt-2 block">${KEEPER_URL}</span></div>`;
+        document.getElementById('conn-dot').className = 'w-2 h-2 rounded-full bg-red-500';
+        document.getElementById('conn-text').textContent = 'Disconnected';
+    }
+}
+
+async function buyOrder(id) {
+    try {
+        const res = await fetch(`${KEEPER_URL}/api/orders/${id}`);
+        const o = await res.json();
+        alert(`📦 Order #${o.id}\n\nSell: ${o.amount_nara} NARA\nPrice: $${o.total_usd} ${o.payment_token}\nOn: ${o.payment_chain_id === 8453 ? 'Base' : 'BSC'}\n\n📍 Payment Address:\n${o.payment_address}\n\nAfter payment, Keeper auto-releases NARA to you.`);
+    } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function handleCreate(e) {
+    e.preventDefault();
+    const amount = document.getElementById('form-amount').value;
+    const price = document.getElementById('form-price').value;
+    const token = document.getElementById('form-token').value;
+    try {
+        const res = await fetch(`${KEEPER_URL}/api/orders`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                amount_nara: parseFloat(amount),
+                price_usd: parseFloat(price),
+                payment_token: token,
+                payment_chain_id: token === 'USDC' ? 8453 : 56,
+                seller_pubkey: prompt('Enter your NARA wallet public key:')
+            })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        alert(`✅ Order #${data.order_id} created!\nPayment: ${data.payment_address}`);
+        showCreate();
+        fetchOrders();
+    } catch (e) { alert('Error: ' + e.message); }
+}
+
+// Auto-refresh every 30s
+fetchOrders();
+setInterval(fetchOrders, 30000);
+</script>
+
+</body>
+</html>
